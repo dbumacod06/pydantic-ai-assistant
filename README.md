@@ -35,9 +35,8 @@ The assistant uses PydanticAI with the Minimax M2.5 model (via OpenRouter) to un
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
-# or if using uv
-uv pip install -r requirements.txt
+uv venv
+uv sync
 ```
 
 ### 2. Google Authentication Setup
@@ -56,7 +55,7 @@ uv pip install -r requirements.txt
 
 ```env
 SMTP_EMAIL=your-email@gmail.com
-SMTP_APP_KEY=your-app-password
+SMTP_APP_KEY=your-app-key
 ```
 
 ### 4. OpenRouter API Setup
@@ -84,7 +83,7 @@ export OPENROUTER_API_KEY=your-openrouter-api-key
 streamlit run main.py
 ```
 
-The app will open in your browser at `http://localhost:8501`
+The app will open in your browser at `http://localhost:8501`ƒ
 
 ## Project Structure
 

@@ -17,3 +17,7 @@ credentials.json
 
 # Old files
 archive/
+
+# Mac Files
+.DS_Store
+
