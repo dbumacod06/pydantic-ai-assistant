@@ -1,9 +1,8 @@
-
 from datetime import datetime, timedelta
 import os
 import uuid
 from zoneinfo import ZoneInfo
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic import BaseModel
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -13,54 +12,95 @@ from email.message import EmailMessage
 
 
 class MeetingDetails(BaseModel):
-    recipient_email: str
+    recipientEmail: str
     title: str
     agenda: str
-    meeting_time: datetime
+    meetingTime: datetime
     duration: int
 
 class EmailDetails(BaseModel):
-    recipient_email: str
+    recipientEmail: str
     subject: str
     content: str
 
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
-def get_calendar_service():
+def getCalendarService() -> any:
+    '''Initializes and returns the Google Calendar service object.'''
     flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
     creds = flow.run_local_server(port=0)
     return build('calendar', 'v3', credentials=creds)
 
 
-service = get_calendar_service()
+service = getCalendarService()
 server = smtplib.SMTP('smtp.gmail.com', 587)
 server.starttls()
-server.login(os.getenv('SMTP_EMAIL'),os.getenv('SMTP_APP_KEY'))
+smtpEmail = os.getenv('SMTP_EMAIL')
+smtpAppKey = os.getenv('SMTP_APP_KEY')
+if smtpEmail and smtpAppKey:
+    server.login(smtpEmail, smtpAppKey)
+else:
+    print("Warning: SMTP_EMAIL or SMTP_APP_KEY not set.")
 
-scheduler_agent = Agent(
-    'openrouter:minimax/minimax-m2.5',
-    output_type= EmailDetails | MeetingDetails | str,
+schedulerAgent = Agent(
+    # 'openrouter:minimax/minimax-m2.5',
+    'openai:gpt-5.4-nano-2026-03-17',
     instructions=(
-        "You are a virtual assistant for Dhoby, a software, data, and ai engineer."
-        "A user can only ask you. to set up a meeting, send an email, paraphrasing or confirming an email or meeting."
-        "If they want to set up a meeting, extract the recipient email, the title, agenda, time of the meeting, and the duration in minutes."
-        "If they want to send an email, extract the email of the recipient, the subject. Extract the email content and modify it to make it professional and grateful and add an email signature from Dhoby Bumacod"
-        "If you can't extract all data for either sending an email or setting up a meeting, ask the user to try again." 
-        "Do not perform other tasks besides sending an email, setting up the meeting, paraphrasing or confirming an email or meeting."
+        "You are a virtual assistant for Dhoby, a software, data, and AI engineer."
+        "You help Dhoby by setting up meetings and sending emails."
+        "Use the provided tools to perform these actions."
+        "If you don't have enough information to call a tool, ask the user for clarification."
     )
 )
 
 
-def set_meeting(meeting_details: MeetingDetails):
+@schedulerAgent.system_prompt
+def get_time_context() -> str:
+    '''Provides the agent with the current date, time, and timezone context.'''
+    now = datetime.now(ZoneInfo("Asia/Manila"))
+    return f"The current time in the Philippines is {now.strftime('%A, %Y-%m-%d %H:%M:%S %Z')}. Assume this is the 'now' for all relative time requests unless stated otherwise."
+
+
+@schedulerAgent.system_prompt
+def get_meeting_context() -> str:
+    '''Additional prompt when the user asks to schedule a meeting'''
+    return f"""
+    The user may have already provided some information, so check for the following information:
+        1. The recipient's email address.
+        2. The title of the meeting.
+        3. The agenda of the meeting.
+        4. The date and time of the meeting.
+        5. The duration of the meeting.
+    If the user only provided the title of the meeting, you can create a agenda for the user, and vice-versa.
+    Once you have all the information, confirm the details with the user. If the user confirmed, call the setMeeting tool.
+    """
+
+@schedulerAgent.system_prompt
+def get_email_context() -> str:
+    '''Additional prompt when the user asks to send an email'''
+    return f"""
+    The user may have already provided some information, so check for the following information:
+        1. The recipient's email address.   
+        2. The subject of the email.
+        3. The content of the email.
+    If the user only provided the content of the email, you can create a subject for the user, and vice-versa.
+    "When sending an email, make sure the content is professional, grateful, and includes Dhoby's signature: 'Best regards, Dhoby Bumacod'."
+    Once you have all the information, confirm the details with the user. If the user confirmed, call the sendEmail tool.
+    """
+
+
+@schedulerAgent.tool
+def setMeeting(ctx: RunContext[None], meetingDetails: MeetingDetails) -> str:
+    '''Sets a meeting on Google Calendar and returns a success or failure message.'''
     try:
-        start_time = meeting_details.meeting_time
-        duration_to_add = timedelta(minutes=meeting_details.duration)
+        startTime = meetingDetails.meetingTime
+        durationToAdd = timedelta(minutes=meetingDetails.duration)
         event = {
-                'summary': meeting_details.title,
-                'start': {'dateTime': start_time.replace(tzinfo=ZoneInfo("Asia/Manila")).isoformat()},
-                'end': {'dateTime': (start_time + duration_to_add).replace(tzinfo=ZoneInfo("Asia/Manila")).isoformat()},
+                'summary': meetingDetails.title,
+                'start': {'dateTime': startTime.replace(tzinfo=ZoneInfo("Asia/Manila")).isoformat()},
+                'end': {'dateTime': (startTime + durationToAdd).replace(tzinfo=ZoneInfo("Asia/Manila")).isoformat()},
                 'attendees': [
-                    {'email': meeting_details.recipient_email}
+                    {'email': meetingDetails.recipientEmail}
                 ],
                 'conferenceData': {
                     'createRequest': {
@@ -70,43 +110,38 @@ def set_meeting(meeting_details: MeetingDetails):
                 }
             }
 
-        event_obj = service.events().insert(
+        eventObj = service.events().insert(
             calendarId='primary', 
             body=event, 
             conferenceDataVersion=1
         ).execute()
-        return(f"Meeting succesfully created! {meeting_details}")
+        return f"Meeting successfully created! {meetingDetails}"
     except Exception as e:
-        return f"Failed to set a meeting. Details as follows: {meeting_details}, {e}"
+        return f"Failed to set a meeting. Details: {meetingDetails}, Error: {e}"
 
 
-
-def send_email(email_details: EmailDetails):
+@schedulerAgent.tool
+def sendEmail(ctx: RunContext[None], emailDetails: EmailDetails) -> str:
+    '''Sends an email via SMTP and returns a success or failure message.'''
     try:
-        email_msg = EmailMessage()
-        email_msg['Subject'] = email_details.subject
-        email_msg['From'] = os.getenv('SMTP_EMAIL')
-        email_msg['To'] = email_details.recipient_email
-        email_msg.set_content(email_details.content)
-        server.send_message(email_msg)
-        return(f"Email successfuly sent! {email_details}")
+        emailMsg = EmailMessage()
+        emailMsg['Subject'] = emailDetails.subject
+        emailMsg['From'] = os.getenv('SMTP_EMAIL')
+        emailMsg['To'] = emailDetails.recipientEmail
+        emailMsg.set_content(emailDetails.content)
+        server.send_message(emailMsg)
+        return f"Email successfully sent! {emailDetails}"
     except Exception as e:
-        return f"Failed to send the email. Details as follows: {email_details}, {e}"
+        return f"Failed to send the email. Details: {emailDetails}, Error: {e}"
 
 
 
-def main():
+def main() -> None:
+    '''Testing loop for the scheduler agent.'''
     while True:
-        user_input = input("How can I help you today? \n")
-        result = scheduler_agent.run_sync(user_input)
+        userInput = input("How can I help you today? \n")
+        result = schedulerAgent.run_sync(userInput)
         print(result.output)
-        print(type(result.output))
-        if isinstance(result.output,MeetingDetails):
-            set_meeting(result.output)
-            break
-        if isinstance(result.output,EmailDetails):
-            send_email(result.output)
-            break
         
 
 if __name__ == "__main__":
