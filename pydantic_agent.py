@@ -43,7 +43,6 @@ else:
     print("Warning: SMTP_EMAIL or SMTP_APP_KEY not set.")
 
 schedulerAgent = Agent(
-    # 'openrouter:minimax/minimax-m2.5',
     'openai:gpt-5.4-nano-2026-03-17',
     instructions=(
         "You are a virtual assistant for Dhoby, a software, data, and AI engineer."
