@@ -58,13 +58,14 @@ SMTP_EMAIL=your-email@gmail.com
 SMTP_APP_KEY=your-app-key
 ```
 
-### 4. OpenRouter API Setup
+### 4. OpenRouter or OpenAI API Setup
 
 Add your OpenRouter API key to your shell profile:
 
 ```bash
 # Add to ~/.zprofile (or ~/.zshrc)
 export OPENROUTER_API_KEY=your-openrouter-api-key
+export OPENAI_API_KEY=your-openai-api-key
 ```
 
 Then reload your shell:
@@ -75,6 +76,7 @@ source ~/.zprofile
 Or export it directly in your terminal:
 ```bash
 export OPENROUTER_API_KEY=your-openrouter-api-key
+export OPENAI_API_KEY=your-openai-api-key
 ```
 
 ### 5. Run the Application
